@@ -1,0 +1,25 @@
+# ─── Core scientific stack ────────────────────────────────────────────────────
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+matplotlib>=3.7.0
+seaborn>=0.13.0
+
+# ─── ECG / HRV processing ─────────────────────────────────────────────────────
+neurokit2>=0.2.7
+
+# ─── Wavelet processing ───────────────────────────────────────────────────────
+PyWavelets>=1.5.0
+
+# ─── EDF support (HMC dataset) ───────────────────────────────────────────────
+pyedflib>=0.1.28
+
+# ─── WFDB support (SLPDB dataset) ────────────────────────────────────────────
+wfdb>=4.1.0
+
+#------Adding astropy keeps Phase 3 HRV spectral features available in fresh environments-----
+astropy>=6.1.7
+
+# ─── Standard library only (no extra install needed) ─────────────────────────
+# sqlite3   — built into Python
+# os, sys, logging, json, glob, datetime, re, typing — all built-in
