@@ -26,9 +26,68 @@ import os
 import glob
 import json
 import logging
-from typing import List, Dict
+from datetime import datetime
+from typing import List, Dict, Optional
 
 from .p0_config import get_active_device_path
+
+
+def _parse_iso8601_ms(value) -> Optional[int]:
+    """Parse either ISO-8601 timestamps or numeric millisecond values."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return int(float(s))
+        except ValueError:
+            pass
+        try:
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is not None:
+                return int(dt.timestamp() * 1000)
+            return int(dt.timestamp() * 1000)
+        except ValueError:
+            return None
+    if isinstance(value, dict):
+        value = value.get("$date")
+        return _parse_iso8601_ms(value)
+    return None
+
+
+def _coerce_value_array(value):
+    """Return the numeric ECG payload from a legacy dict or a new packet entry."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        if not value:
+            return []
+        if isinstance(value[0], list):
+            first = value[0]
+            return list(first)
+        if isinstance(value[0], (int, float)):
+            return list(value)
+    return [value] if isinstance(value, (int, float)) else []
+
+
+def _is_new_packetized_json(payload) -> bool:
+    if not isinstance(payload, list) or not payload:
+        return False
+    first = payload[0]
+    if not isinstance(first, dict):
+        return False
+    if "admissionId" not in first or "value" not in first:
+        return False
+    value = first.get("value")
+    if not isinstance(value, list) or not value:
+        return False
+    return True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,22 +111,58 @@ def scan_datasets(config: dict,
 #  DEVICE scanner — groups many small JSON chunks into sessions
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _read_device_chunk_meta(path: str, id_key: str) -> Dict:
+def _read_device_chunk_meta(path: str, id_key: str) -> Optional[Dict]:
     """
-    Read only the small scalar fields of one device JSON chunk (session id,
-    timing, sample count). Still requires json.load()-ing the whole file
-    since ECG_CH_A lives in the same dict, but nothing large is retained.
+    Read only the small scalar fields of one device JSON chunk/session.
+
+    Supports both the legacy chunk format (single ECG_*.json dict with
+    admissionId/window_start_ms/... fields) and the newer packetized format
+    (one JSON file with a list of records, each containing utcTimestamp and
+    a nested value[] ECG packet array for the same admissionId).
     """
     with open(path, "r", encoding="utf-8") as f:
         d = json.load(f)
-    return {
-        "path"           : path,
-        "session_id"     : str(d.get(id_key, "UNKNOWN")),
-        "window_start_ms": d.get("window_start_ms"),
-        "window_end_ms"  : d.get("window_end_ms"),
-        "duration_s"     : d.get("duration_s"),
-        "sample_count"   : d.get("sample_count"),
-    }
+
+    if isinstance(d, dict):
+        return {
+            "path"           : path,
+            "session_id"     : str(d.get(id_key, "UNKNOWN")),
+            "window_start_ms": d.get("window_start_ms"),
+            "window_end_ms"  : d.get("window_end_ms"),
+            "duration_s"     : d.get("duration_s"),
+            "sample_count"   : d.get("sample_count"),
+        }
+
+    if _is_new_packetized_json(d):
+        samples = 0
+        timestamps = []
+        for record in d:
+            if not isinstance(record, dict):
+                continue
+            value = record.get("value")
+            packet = _coerce_value_array(value)
+            if packet:
+                samples += len(packet)
+            ts = _parse_iso8601_ms(record.get("utcTimestamp"))
+            if ts is not None:
+                timestamps.append(ts)
+
+        if not timestamps or samples == 0:
+            return None
+
+        start_ms = min(timestamps)
+        end_ms = max(timestamps)
+        duration_s = max((end_ms - start_ms) / 1000.0, 1.0 / 125.0)
+        return {
+            "path"           : path,
+            "session_id"     : str(d[0].get(id_key, "UNKNOWN")),
+            "window_start_ms": start_ms,
+            "window_end_ms"  : end_ms,
+            "duration_s"     : duration_s,
+            "sample_count"   : int(samples),
+        }
+
+    return None
 
 
 def build_device_manifest(config: dict,
@@ -90,17 +185,21 @@ def build_device_manifest(config: dict,
     id_key  = config.get("device_id_key", "admissionId")
     pattern = config.get("device_file_glob", "ECG_*.json")
 
-    files = glob.glob(os.path.join(path, "**", pattern), recursive=True)
+    files = set(glob.glob(os.path.join(path, "**", pattern), recursive=True))
+    files |= set(glob.glob(os.path.join(path, "**", "*.json"), recursive=True))
+    files = sorted(files)
 
     if logger:
         logger.info(f"[DEVICE] Scanned: {path}")
-        logger.info(f"  Found {len(files)} JSON chunk file(s) matching '{pattern}'")
+        logger.info(f"  Found {len(files)} JSON file(s) checked for device payloads '{pattern}'")
 
     sessions  = {}
     bad_files = []
     for fp in files:
         try:
             meta = _read_device_chunk_meta(fp, id_key)
+            if meta is None:
+                continue
             if meta["window_start_ms"] is None or meta["sample_count"] is None:
                 bad_files.append(fp)
                 continue

@@ -60,7 +60,20 @@ def load_record(config, logger):
     for i, c in enumerate(chunks):
         with open(c["path"], "r", encoding="utf-8") as f:
             full = json.load(f)
-        seg  = np.asarray(full.get(ecg_key, []), dtype="float64")
+        if isinstance(full, list):
+            signal = []
+            for record in full:
+                if not isinstance(record, dict):
+                    continue
+                value = record.get("value")
+                if not isinstance(value, list) or not value:
+                    continue
+                packet = value[0] if isinstance(value[0], list) else value
+                if isinstance(packet, list):
+                    signal.extend(packet)
+            seg = np.asarray(signal, dtype="float64")
+        else:
+            seg = np.asarray(full.get(ecg_key, []), dtype="float64")
         fs_c = _fs_from_chunk(c)
         if fs_c:
             per_chunk_fs.append(fs_c)

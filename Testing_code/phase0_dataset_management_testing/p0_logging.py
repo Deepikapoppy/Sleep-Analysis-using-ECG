@@ -31,12 +31,14 @@ from datetime import datetime
 # ─────────────────────────────────────────────────────────────────────────────
 
 def setup_logger(name: str, log_dir: str = "logs",
+                 log_file: str | None = None,
                  level: int = logging.DEBUG,
                  console_level: int = logging.INFO) -> logging.Logger:
     """
     Create (or fetch) a named logger with:
       - a console handler at `console_level` (concise, no timestamp clutter)
-      - a file handler at DEBUG writing to log_dir/<name>_<timestamp>.log
+      - a file handler at DEBUG writing to log_dir/<name>_<timestamp>.log by
+        default, or to the custom file name if `log_file` is provided.
 
     Idempotent: calling this again with the same `name` returns the same
     logger without adding duplicate handlers (important since several
@@ -52,8 +54,10 @@ def setup_logger(name: str, log_dir: str = "logs",
         return logger
 
     os.makedirs(log_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path  = os.path.join(log_dir, f"{name}_{timestamp}.log")
+    if log_file is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = f"{name}_{timestamp}.log"
+    log_path = os.path.join(log_dir, log_file)
 
     file_fmt = logging.Formatter(
         fmt="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",

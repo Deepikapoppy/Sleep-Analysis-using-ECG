@@ -91,15 +91,16 @@ def _extract_device_metadata(session_id: str, chunks: List[Dict],
             f"{gap_tol} ms detected between chunks"
         )
 
-    # Pull patient/device fields from the first chunk's full JSON
+    # Pull patient/device fields from the first chunk/session JSON.
     with open(chunks[0]["path"], "r", encoding="utf-8") as f:
         first_full = json.load(f)
+    first_record = first_full[0] if isinstance(first_full, list) and first_full else first_full
     device_fields = {}
     for k in ("patientId", "patientName", "admissionId", "facilityId",
              "deviceId", "age", "gender", "assignedDoctor",
              "firmware_version", "rhythmType"):
-        if k in first_full:
-            device_fields[f"device_{k}"] = first_full.get(k)
+        if isinstance(first_record, dict) and k in first_record:
+            device_fields[f"device_{k}"] = first_record.get(k)
 
     first_start_ms = chunks[0]["window_start_ms"]
     last_end_ms    = chunks[-1]["window_end_ms"]

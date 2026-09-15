@@ -30,6 +30,27 @@ from phase0_dataset_management_testing.p0_scan_datasets import get_device_chunk_
 from phase0_dataset_management_testing.p0_metadata_extraction import _fs_from_chunk
 
 
+def _extract_signal_from_json_payload(full, ecg_key: str) -> np.ndarray:
+    """Support both the legacy dict chunk format and the newer packetized list format."""
+    if isinstance(full, dict):
+        return np.asarray(full.get(ecg_key, []), dtype="float32")
+
+    if isinstance(full, list):
+        signal = []
+        for record in full:
+            if not isinstance(record, dict):
+                continue
+            value = record.get("value")
+            if not isinstance(value, list) or not value:
+                continue
+            packets = value[0] if isinstance(value[0], list) else value
+            if isinstance(packets, list):
+                signal.extend(packets)
+        return np.asarray(signal, dtype="float32")
+
+    return np.asarray([], dtype="float32")
+
+
 def load_ecg(config: dict, logger: logging.Logger):
     """
     Load and concatenate one device session's ECG chunks.
@@ -68,7 +89,7 @@ def load_ecg(config: dict, logger: logging.Logger):
     for i, c in enumerate(chunks):
         with open(c["path"], "r", encoding="utf-8") as f:
             full = json.load(f)
-        seg  = np.asarray(full.get(ecg_key, []), dtype="float32")
+        seg = _extract_signal_from_json_payload(full, ecg_key)
         fs_c = _fs_from_chunk(c)
         if fs_c:
             per_chunk_fs.append(fs_c)
