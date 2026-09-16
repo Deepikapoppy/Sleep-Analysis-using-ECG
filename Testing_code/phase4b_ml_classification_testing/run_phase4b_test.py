@@ -33,7 +33,9 @@ from phase4b_ml_classification_testing.p4b_logging   import setup_logger
 TEST_DB_PATH = "test_pipeline.db"   # isolated from your production DB
 
 # ── EDIT THIS ────────────────────────────────────────────────────────────
-MODEL_PATH = os.path.join("results", "hmc", "consolidated", "phase4b_rf_model.pkl")
+MODEL_PATH = os.path.join(
+    REPO_ROOT, "results", "hmc", "consolidated", "phase4b_rf_model.pkl"
+)
 # Change "hmc" to "slpdb" (or your pooled/combined path) if that's what you
 # actually trained the deployed model on.
 # ─────────────────────────────────────────────────────────────────────────

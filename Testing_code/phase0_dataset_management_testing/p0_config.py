@@ -10,10 +10,24 @@ folder. This package only ever scans/loads/registers "device" JSON sessions.
 
 import os
 
+# Keep test outputs inside Testing_code even when a driver is launched from
+# the project root.
+TESTING_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Single source of truth for the testing SQLite database path. This package
+# must NEVER default to Database.create_database.DB_PATH / Database.db_manager
+# .DB_PATH — those resolve to Sleepanalysis.db, the PRODUCTION/training
+# database. Every p0_*.py module's db_path default pulls from here instead,
+# so test runs can never silently write into production.
+TEST_DB_PATH = "test_pipeline.db"
+
 CONFIG = {
     # Kept as a literal (not a selector) so downstream code that still checks
     # config.get("dataset") keeps working without needing an if/else per file.
     "dataset" : "device",
+
+    # ── TESTING DATABASE ────────────────────────────────────────────────────
+    "db_path" : TEST_DB_PATH,
 
     # ── DEVICE PATHS ────────────────────────────────────────────────────────
     "local_device_path"     : r"C:\Users\admin\Downloads\database_sp\Datasets\device_json",
@@ -45,7 +59,7 @@ CONFIG = {
     "dwt_level"   : 5,
 
     # ── OUTPUT ───────────────────────────────────────────────────────────────
-    "results_dir" : "results_test",   # kept separate from production 'results/'
+    "results_dir" : os.path.join(TESTING_ROOT, "results_test"),
     "log_file"    : "pipeline.log",
 
     # ── PLOTTING (device format has no ground truth, so only used for

@@ -5,20 +5,32 @@ DEVICE-ONLY scanner. Scans local device JSON chunk folders and groups them
 into sessions. slpdb/hmc scanning has been intentionally removed from this
 testing package.
 
-Layout supported (any folder nesting):
-    device_json_or_test_dataset/
-        <any nesting, e.g. ADM937394258/2026-06-30_04/>/
-            ECG_ADM937394258_035937.json   ← ~30 s chunk, has admissionId,
-            ECG_ADM937394258_040007.json      window_start_ms/window_end_ms,
-            ...                                duration_s, sample_count
+Accepted JSON structure (the only ECG chunk format this pipeline supports —
+confirmed identical across every device/firmware seen so far, e.g. ezbelt
+session ADM1094607798.json and ezflex session ADM1345459698.json):
 
-    Other sensor files (SPO2_UNFILTERED_*, NISO101_*, *_data_*) may sit in
-    the same folders — device_file_glob="ECG_*.json" excludes them.
+    [
+      {
+        "utcTimestamp": {"$date": "2026-09-04T16:51:59.195Z"},
+        "admissionId":  "ADM1345459698",
+        "packetNo":     1,
+        "_id":          {"$oid": "..."},
+        "facilityId":   "CF1315821527",
+        "value":        [[<ecg sample>, <ecg sample>, ...]]
+      },
+      ...
+    ]
 
-    Chunk files are grouped into one "record" (session) by `device_id_key`
-    (default "admissionId") and sorted by window_start_ms. A record here
-    is therefore a SESSION (potentially spanning many hour-folders), not a
-    single file.
+    i.e. one JSON file holding a LIST of packet records for the same
+    admissionId, each with a nested value[0] ECG sample array. A "record"
+    here is therefore a SESSION (chunk files are grouped/sorted by
+    `device_id_key`, default "admissionId", and by window_start_ms — a
+    session may span multiple files/hour-folders, or be a single file).
+
+    Non-ECG device files (alerts — {"category": "alert", "streamAlert": ...},
+    SPO2_UNFILTERED_*, NISO101_*, etc.) may sit in the same folders. They
+    don't match the structure above (no admissionId+value list) and are
+    silently skipped — see _read_device_chunk_meta / build_device_manifest.
 =============================================================================
 """
 
@@ -62,7 +74,7 @@ def _parse_iso8601_ms(value) -> Optional[int]:
 
 
 def _coerce_value_array(value):
-    """Return the numeric ECG payload from a legacy dict or a new packet entry."""
+    """Return the numeric ECG payload from one packet record's "value" field."""
     if value is None:
         return []
     if isinstance(value, list):
@@ -76,7 +88,10 @@ def _coerce_value_array(value):
     return [value] if isinstance(value, (int, float)) else []
 
 
-def _is_new_packetized_json(payload) -> bool:
+def _is_packetized_json(payload) -> bool:
+    """True if payload matches the accepted device ECG structure (see module
+    docstring): a non-empty list of dict records, each with an admissionId
+    and a nested value[] ECG sample array."""
     if not isinstance(payload, list) or not payload:
         return False
     first = payload[0]
@@ -115,25 +130,17 @@ def _read_device_chunk_meta(path: str, id_key: str) -> Optional[Dict]:
     """
     Read only the small scalar fields of one device JSON chunk/session.
 
-    Supports both the legacy chunk format (single ECG_*.json dict with
-    admissionId/window_start_ms/... fields) and the newer packetized format
-    (one JSON file with a list of records, each containing utcTimestamp and
-    a nested value[] ECG packet array for the same admissionId).
+    Only the packetized structure is accepted (see module docstring): a
+    JSON file holding a list of packet records, each with utcTimestamp and
+    a nested value[] ECG packet array for the same admissionId. Anything
+    else (a bare dict, an alert file, an empty/malformed list, etc.)
+    returns None and is skipped by the caller — this pipeline has never
+    seen a real device file in any other shape.
     """
     with open(path, "r", encoding="utf-8") as f:
         d = json.load(f)
 
-    if isinstance(d, dict):
-        return {
-            "path"           : path,
-            "session_id"     : str(d.get(id_key, "UNKNOWN")),
-            "window_start_ms": d.get("window_start_ms"),
-            "window_end_ms"  : d.get("window_end_ms"),
-            "duration_s"     : d.get("duration_s"),
-            "sample_count"   : d.get("sample_count"),
-        }
-
-    if _is_new_packetized_json(d):
+    if _is_packetized_json(d):
         samples = 0
         timestamps = []
         for record in d:
@@ -245,9 +252,9 @@ def _scan_device(config: dict, logger) -> List[str]:
     if not sessions:
         raise RuntimeError(
             f"No valid device JSON chunks found in: {get_active_device_path(config)}\n"
-            f"Expected files matching '{config.get('device_file_glob', 'ECG_*.json')}' "
-            f"containing '{config.get('device_id_key', 'admissionId')}' "
-            f"and 'window_start_ms'/'sample_count' fields."
+            f"Expected JSON files holding a list of packet records, each with "
+            f"'{config.get('device_id_key', 'admissionId')}' and a nested "
+            f"'value' ECG sample array (see p0_scan_datasets.py module docstring)."
         )
     config["_device_manifest"] = sessions      # cache for Phase 0/1 loaders
     return sorted(sessions.keys())

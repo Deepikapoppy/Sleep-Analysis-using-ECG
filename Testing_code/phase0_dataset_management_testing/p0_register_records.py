@@ -24,20 +24,20 @@ import json
 import logging
 from typing import List
 
-from Database.create_database import create_database, DB_PATH
+from Database.create_database import create_database
 from Database.db_manager import (
     register_dataset,
     register_record,
     update_dataset_record_count,
 )
 
-from .p0_config import get_active_device_path
+from .p0_config import get_active_device_path, TEST_DB_PATH
 
 
 def register_all_records(config: dict,
                          records: List[str],
                          logger: logging.Logger = None,
-                         db_path: str = DB_PATH) -> int:
+                         db_path: str = TEST_DB_PATH) -> int:
     """
     Register device sessions into SQLite.
 
@@ -107,5 +107,5 @@ if __name__ == "__main__":
 
     logger  = setup_logger("register", log_dir="logs")
     records = scan_datasets(CONFIG, logger)
-    did     = register_all_records(CONFIG, records, logger, db_path="test_pipeline.db")
+    did     = register_all_records(CONFIG, records, logger, db_path=CONFIG["db_path"])
     print(f"dataset_id = {did},  {len(records)} sessions registered.")

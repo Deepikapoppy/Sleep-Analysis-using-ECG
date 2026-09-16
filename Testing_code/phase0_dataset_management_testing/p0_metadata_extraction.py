@@ -20,8 +20,9 @@ from typing import Optional, List, Dict
 import numpy as np
 
 from Database.db_manager import (
-    get_all_records, upsert_metadata, mark_phase_failed, DB_PATH
+    get_all_records, upsert_metadata, mark_phase_failed
 )
+from .p0_config import TEST_DB_PATH
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -94,7 +95,9 @@ def _extract_device_metadata(session_id: str, chunks: List[Dict],
     # Pull patient/device fields from the first chunk/session JSON.
     with open(chunks[0]["path"], "r", encoding="utf-8") as f:
         first_full = json.load(f)
-    first_record = first_full[0] if isinstance(first_full, list) and first_full else first_full
+    # Chunk files are always a packetized list (see p0_scan_datasets.py
+    # module docstring) — pull patient/device fields from its first record.
+    first_record = first_full[0] if first_full else {}
     device_fields = {}
     for k in ("patientId", "patientName", "admissionId", "facilityId",
              "deviceId", "age", "gender", "assignedDoctor",
@@ -144,7 +147,7 @@ def _extract_device_metadata(session_id: str, chunks: List[Dict],
 def extract_all_metadata(config: dict,
                          logger: logging.Logger,
                          output_root: str = "results_test",
-                         db_path: str = DB_PATH) -> None:
+                         db_path: str = TEST_DB_PATH) -> None:
     """
     For every device session registered in SQLite:
       1. Read the chunk manifest (fs / gap validation, no full signal load)
@@ -198,4 +201,4 @@ if __name__ == "__main__":
     from .p0_config import CONFIG
     from .p0_logging import setup_logger
     logger = setup_logger("metadata", log_dir="logs")
-    extract_all_metadata(CONFIG, logger, db_path="test_pipeline.db")
+    extract_all_metadata(CONFIG, logger, db_path=CONFIG["db_path"])

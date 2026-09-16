@@ -17,12 +17,12 @@ import json
 import logging
 import numpy as np
 
-from .p0_config  import CONFIG, get_record_path, make_subject_dirs
+from .p0_config  import CONFIG, get_record_path, make_subject_dirs, TEST_DB_PATH
 from .p0_logging import setup_logger
 from .p0_metadata_extraction import _fs_from_chunk
 from .p0_scan_datasets import build_device_manifest, get_device_chunk_files
 from Database.db_manager import (
-    get_record, mark_phase_done, mark_phase_failed, DB_PATH
+    get_record, mark_phase_done, mark_phase_failed
 )
 
 
@@ -60,20 +60,20 @@ def load_record(config, logger):
     for i, c in enumerate(chunks):
         with open(c["path"], "r", encoding="utf-8") as f:
             full = json.load(f)
-        if isinstance(full, list):
-            signal = []
-            for record in full:
-                if not isinstance(record, dict):
-                    continue
-                value = record.get("value")
-                if not isinstance(value, list) or not value:
-                    continue
-                packet = value[0] if isinstance(value[0], list) else value
-                if isinstance(packet, list):
-                    signal.extend(packet)
-            seg = np.asarray(signal, dtype="float64")
-        else:
-            seg = np.asarray(full.get(ecg_key, []), dtype="float64")
+        # Every registered chunk is a packetized list (see p0_scan_datasets.py
+        # module docstring) — a session's chunks were already filtered to
+        # that shape by build_device_manifest(), so no other case is expected.
+        signal = []
+        for record in full:
+            if not isinstance(record, dict):
+                continue
+            value = record.get("value")
+            if not isinstance(value, list) or not value:
+                continue
+            packet = value[0] if isinstance(value[0], list) else value
+            if isinstance(packet, list):
+                signal.extend(packet)
+        seg = np.asarray(signal, dtype="float64")
         fs_c = _fs_from_chunk(c)
         if fs_c:
             per_chunk_fs.append(fs_c)
@@ -180,7 +180,7 @@ def plot_raw_ecg_overview(record, config, logger):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def run_phase0_record(config: dict, logger: logging.Logger,
-                      db_path: str = DB_PATH) -> None:
+                      db_path: str = TEST_DB_PATH) -> None:
     rec_name  = config["record_name"]
     db_row    = get_record(rec_name, "device", db_path)   # None if not registered — fine
     record_id = db_row["record_id"] if db_row else None
@@ -215,11 +215,11 @@ if __name__ == "__main__":
     logger  = setup_logger("phase0_inspect", log_dir="logs")
     records = scan_datasets(CONFIG, logger)
 
-    register_all_records(CONFIG, records, logger, db_path="test_pipeline.db")
+    register_all_records(CONFIG, records, logger, db_path=CONFIG["db_path"])
 
     for rec in records:
         CONFIG["record_name"] = rec
         CONFIG["output_dir"]  = make_subject_dirs(
             rec, CONFIG["results_dir"], CONFIG["dataset"]
         )
-        run_phase0_record(CONFIG, logger, db_path="test_pipeline.db")
+        run_phase0_record(CONFIG, logger, db_path=CONFIG["db_path"])
